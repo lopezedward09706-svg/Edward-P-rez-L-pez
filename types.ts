@@ -18,6 +18,7 @@ export interface Quark {
     charge: number;
     nodes: number[];
     position: { x: number; y: number };
+    velocity: { x: number; y: number };
     color: string;
 }
 
@@ -53,6 +54,7 @@ export interface IAState {
     matter?: any[];
     coordination?: any;
     modifications?: any[];
+    lastResponse?: string;
 }
 
 export interface GlobalState {

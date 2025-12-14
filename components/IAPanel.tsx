@@ -35,7 +35,7 @@ const IAPanel: React.FC<IAPanelProps> = ({ chatHistory, onSendMessage, onRunIA, 
         { id: 3, name: 'IA3', label: 'IA3: OBSERVADOR', color: 'text-ia3', bg: 'bg-ia3', desc: 'Observa sin interactuar, calcula consenso global.', action: 'CALCULAR CONSENSO' },
         { id: 4, name: 'IA4', label: 'IA4: BUSCADOR', color: 'text-ia4', bg: 'bg-ia4', desc: 'Genera y prueba ecuaciones para encontrar constantes.', action: 'BUSCAR CONSTANTES' },
         { id: 5, name: 'IA5', label: 'IA5: INTEGRADOR', color: 'text-ia5', bg: 'bg-ia5', desc: 'Convierte quarks en átomos y materia emergente.', action: 'GENERAR MATERIA' },
-        { id: 6, name: 'IA6', label: 'IA6: MEDIADOR', color: 'text-ia6', bg: 'bg-ia6', desc: 'Coordina comunicación entre IAs, ayuda a las atascadas.', action: 'COORDINAR IAS' },
+        { id: 6, name: 'IA6', label: 'IA6: MEDIADOR', color: 'text-ia6', bg: 'bg-ia6', desc: 'Analiza estado y sugiere ajustes de parámetros óptimos.', action: 'OPTIMIZAR PARÁMETROS' },
         { id: 7, name: 'IA7', label: 'IA7: PROGRAMADOR', color: 'text-ia7', bg: 'bg-ia7', desc: 'Modifica el código base según instrucciones.', action: 'EJECUTAR MODIFICACIÓN', hasInput: true },
     ];
 
@@ -96,7 +96,7 @@ const IAPanel: React.FC<IAPanelProps> = ({ chatHistory, onSendMessage, onRunIA, 
                                     <input 
                                         type="text" 
                                         id="ia7-input"
-                                        placeholder="Instrucción de modificación..."
+                                        placeholder={ia.id === 7 ? "Target File (e.g. 'App.tsx') or Instruction..." : "Instrucción..."}
                                         className="w-full bg-black/40 border border-white/20 rounded px-3 py-2 text-sm mb-2"
                                     />
                                 )}
