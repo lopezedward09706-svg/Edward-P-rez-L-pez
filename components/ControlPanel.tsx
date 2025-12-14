@@ -1,4 +1,5 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 import { SimulationParameters } from '../types';
 import { PRESETS, SCALE_LABELS } from '../constants';
 
@@ -10,65 +11,78 @@ interface ControlPanelProps {
     onReset: () => void;
     onRunAllIAs: () => void;
     onLoadPreset: (preset: SimulationParameters) => void;
+    onSaveDeduction: (text: string) => void;
 }
 
 const ControlPanel: React.FC<ControlPanelProps> = ({ 
-    params, onParamChange, onStart, onPause, onReset, onRunAllIAs, onLoadPreset 
+    params, onParamChange, onStart, onPause, onReset, onRunAllIAs, onLoadPreset, onSaveDeduction 
 }) => {
-    
-    const renderSlider = (
-        label: string, 
-        id: keyof SimulationParameters, 
-        min: number, 
-        max: number, 
-        step: number, 
-        displayValue: string | number
-    ) => (
-        <div className="mb-4">
-            <div className="flex justify-between text-sm mb-1 text-gray-300">
-                <span>{label}</span>
-                <span className="text-blue-300">{displayValue}</span>
-            </div>
-            <input 
-                type="range" 
-                min={min} max={max} step={step} 
-                value={params[id]}
-                onChange={(e) => onParamChange(id, parseFloat(e.target.value))}
-                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
-            />
-        </div>
-    );
+    const [deduction, setDeduction] = useState("");
 
     return (
         <div className="bg-glass backdrop-blur-md border border-white/10 rounded-xl p-4 flex flex-col h-full overflow-y-auto">
-            <h3 className="text-lg font-semibold border-b-2 border-white/20 pb-2 mb-4">🎛️ PARÁMETROS ABC</h3>
+            <h3 className="text-lg font-semibold border-b-2 border-white/20 pb-2 mb-4">🎛️ CONTROLES UNIVERSALES</h3>
             
-            {renderSlider('Escala', 'scale', 0, 8, 1, SCALE_LABELS[params.scale])}
-            {renderSlider('Masa Central (log)', 'mass', -5, 5, 0.1, params.mass.toFixed(1))}
-            {renderSlider('Velocidad (% c)', 'velocity', 0, 99, 1, `${params.velocity}%`)}
-            {renderSlider('Densidad', 'density', 0.3, 3, 0.1, params.density.toFixed(1))}
-            {renderSlider('N_abc (Triadas)', 'n_abc', 1, 9, 1, params.n_abc)}
-            {renderSlider('Energía Fuerte', 'strongEnergy', 0.1, 10, 0.1, params.strongEnergy.toFixed(1))}
-            {renderSlider('Energía Débil', 'weakEnergy', 0.001, 1, 0.001, params.weakEnergy.toFixed(3))}
-            {renderSlider('Radio/π', 'radioPi', 0.1, 3, 0.1, params.radioPi.toFixed(1))}
-
-            <div className="space-y-2 mt-4">
-                <button onClick={onStart} className="w-full py-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-md font-bold hover:shadow-lg hover:-translate-y-0.5 transition-all">▶ INICIAR SIMULACIÓN</button>
-                <button onClick={onPause} className="w-full py-2 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-md font-bold hover:shadow-lg hover:-translate-y-0.5 transition-all">⏸ PAUSAR</button>
-                <button onClick={onReset} className="w-full py-2 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-md font-bold hover:shadow-lg hover:-translate-y-0.5 transition-all">🔄 REINICIAR TODO</button>
-                <button onClick={onRunAllIAs} className="w-full py-2 bg-gradient-to-r from-pink-500 to-rose-500 rounded-md font-bold hover:shadow-lg hover:-translate-y-0.5 transition-all">🤖 EJECUTAR 7 IAS</button>
+            {/* Scale Slider */}
+            <div className="mb-6">
+                <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-300">Escala Dimensional</span>
+                    <span className="text-cyan-400 font-bold">{SCALE_LABELS[params.scale]}</span>
+                </div>
+                <input 
+                    type="range" min="0" max="8" step="1" 
+                    value={params.scale}
+                    onChange={(e) => onParamChange('scale', parseInt(e.target.value))}
+                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                />
             </div>
 
-            <div className="grid grid-cols-2 gap-2 mt-6">
-                {Object.entries(PRESETS).map(([key, preset]) => (
-                    <button 
-                        key={key}
-                        onClick={() => onLoadPreset(preset)}
-                        className="p-2 text-xs bg-gradient-to-br from-purple-700 to-indigo-800 rounded hover:from-purple-600 hover:to-indigo-700 transition-colors uppercase font-semibold tracking-wider"
-                    >
-                        {key.replace(/([A-Z])/g, ' $1').trim()}
-                    </button>
-                ))}
+            {/* Triangles Slider */}
+            <div className="mb-6">
+                <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-300">Densidad (Triángulos ABC)</span>
+                    <span className="text-purple-400 font-bold">{params.n_abc}</span>
+                </div>
+                <input 
+                    type="range" min="10" max="500" step="10" 
+                    value={params.n_abc}
+                    onChange={(e) => onParamChange('n_abc', parseInt(e.target.value))}
+                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                />
+            </div>
+
+            <div className="flex gap-2 mb-4">
+                 <button onClick={onStart} className="flex-1 py-2 bg-green-600/80 rounded hover:bg-green-500 font-bold text-sm">▶ INICIAR</button>
+                 <button onClick={onPause} className="flex-1 py-2 bg-yellow-600/80 rounded hover:bg-yellow-500 font-bold text-sm">⏸ PAUSAR</button>
+                 <button onClick={onReset} className="flex-1 py-2 bg-red-600/80 rounded hover:bg-red-500 font-bold text-sm">↺ REINICIAR</button>
+            </div>
+            
+            <button onClick={onRunAllIAs} className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 rounded font-bold mb-6 hover:shadow-lg transition-all">
+                🤖 EJECUTAR 7 IAS (AUTÓNOMOS)
+            </button>
+
+            {/* User Deductions */}
+            <div className="bg-black/30 p-3 rounded border border-white/10 mb-4">
+                <label className="text-xs font-bold text-gray-400 mb-2 block">MIS DEDUCCIONES (PARA IA7):</label>
+                <textarea 
+                    className="w-full bg-black/50 border border-white/10 rounded p-2 text-xs h-20 text-white mb-2"
+                    placeholder="Escribe tus observaciones sobre la geometría o física..."
+                    value={deduction}
+                    onChange={(e) => setDeduction(e.target.value)}
+                />
+                <button 
+                    onClick={() => { onSaveDeduction(deduction); setDeduction(""); }}
+                    className="w-full py-1 bg-white/10 hover:bg-white/20 rounded text-xs"
+                >
+                    GUARDAR EN MEMORIA COMPARTIDA
+                </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => onLoadPreset(PRESETS.planckSoup)} className="p-2 text-xs bg-gray-700 rounded hover:bg-gray-600">Sopa Planck</button>
+                <button onClick={() => onLoadPreset(PRESETS.atomicFormation)} className="p-2 text-xs bg-gray-700 rounded hover:bg-gray-600">Átomos</button>
+                <button onClick={() => onLoadPreset(PRESETS.blackHole)} className="p-2 text-xs bg-gray-700 rounded hover:bg-gray-600">Agujero Negro</button>
+                <button onClick={() => onLoadPreset(PRESETS.lightSpeedTest)} className="p-2 text-xs bg-gray-700 rounded hover:bg-gray-600">Velocidad Luz</button>
             </div>
         </div>
     );

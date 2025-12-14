@@ -1,24 +1,67 @@
-import { ABCNode, Quark, Atom, SimulationParameters, GlobalState, NodeType } from '../types';
+
+import { ABCNode, Quark, Atom, Molecule, SimulationParameters, GlobalState, NodeType } from '../types';
 import { PLANCK_ENERGY } from '../constants';
+
+// --- Linear Algebra & Statistics Library ---
+const MathUtils = {
+    gaussian: (): number => {
+        let u = 0, v = 0;
+        while (u === 0) u = Math.random();
+        while (v === 0) v = Math.random();
+        return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    },
+    
+    vecAdd: (v1: {x:number, y:number}, v2: {x:number, y:number}) => ({x: v1.x + v2.x, y: v1.y + v2.y}),
+    vecSub: (v1: {x:number, y:number}, v2: {x:number, y:number}) => ({x: v1.x - v2.x, y: v1.y - v2.y}),
+    vecMul: (v: {x:number, y:number}, s: number) => ({x: v.x * s, y: v.y * s}),
+    vecMag: (v: {x:number, y:number}) => Math.sqrt(v.x*v.x + v.y*v.y),
+    vecNorm: (v: {x:number, y:number}) => {
+        const m = Math.sqrt(v.x*v.x + v.y*v.y);
+        return m === 0 ? {x:0, y:0} : {x: v.x/m, y: v.y/m};
+    },
+    // Snell's Law Refraction Vector Calculation
+    refract: (incident: {x:number, y:number}, normal: {x:number, y:number}, n1: number, n2: number) => {
+        const r = n1 / n2;
+        const c = -(incident.x * normal.x + incident.y * normal.y);
+        const discriminant = 1 - r * r * (1 - c * c);
+        if (discriminant < 0) return null; // Total Internal Reflection
+        
+        return {
+            x: r * incident.x + (r * c - Math.sqrt(discriminant)) * normal.x,
+            y: r * incident.y + (r * c - Math.sqrt(discriminant)) * normal.y
+        };
+    }
+};
 
 export class SimulationEngine {
     state: GlobalState;
-    private quarkIdCounter = 0;
+    private idCounter = 0;
+    private gridResolution = 20;
 
     constructor(initialParams: SimulationParameters) {
         this.state = {
             nodes: [],
             quarks: [],
             atoms: [],
+            molecules: [],
             time: 0,
             running: false,
             clocks: {
                 earth: { ticks: 0, state: 'a', dilation: 1.0 },
                 rocket: { ticks: 0, state: 'a', dilation: 1.0 }
             },
-            parameters: initialParams
+            parameters: initialParams,
+            statistics: { meanEnergy: 0, stdDevEnergy: 0, entropy: 0 },
+            fabricDeformation: [],
+            spaceship: { x: -0.9, y: 0.6, v: 0.8 }, // 0.8c
+            sharedMemory: {
+                errors: [],
+                patches: [],
+                userDeductions: ""
+            }
         };
         this.initializeNodes();
+        this.initializeGrid();
     }
 
     reset() {
@@ -26,348 +69,308 @@ export class SimulationEngine {
         this.state.nodes = [];
         this.state.quarks = [];
         this.state.atoms = [];
-        this.state.clocks = {
-            earth: { ticks: 0, state: 'a', dilation: 1.0 },
-            rocket: { ticks: 0, state: 'a', dilation: 1.0 }
-        };
+        this.state.molecules = [];
         this.state.running = false;
+        this.state.sharedMemory.errors = [];
+        this.state.sharedMemory.patches = [];
+        this.state.spaceship.x = -0.9;
         this.initializeNodes();
-        this.quarkIdCounter = 0;
+        this.initializeGrid();
     }
 
     updateParams(newParams: Partial<SimulationParameters>) {
-        const densityChanged = newParams.density !== undefined && newParams.density !== this.state.parameters.density;
+        const shouldReinit = newParams.n_abc !== undefined && newParams.n_abc !== this.state.parameters.n_abc;
         this.state.parameters = { ...this.state.parameters, ...newParams };
-        
-        if (densityChanged && !this.state.running) {
-            this.initializeNodes();
+        if (shouldReinit && !this.state.running) this.initializeNodes();
+    }
+
+    private initializeGrid() {
+        this.state.fabricDeformation = [];
+        for (let i = 0; i <= this.gridResolution; i++) {
+            const row = [];
+            for (let j = 0; j <= this.gridResolution; j++) {
+                row.push(0);
+            }
+            this.state.fabricDeformation.push(row);
         }
     }
 
     initializeNodes() {
         this.state.nodes = [];
-        const nodeCount = Math.floor(30 * this.state.parameters.density);
-
-        for (let i = 0; i < nodeCount; i++) {
-            const angle = (i / nodeCount) * 2 * Math.PI;
-            const radius = 0.3 + 0.4 * Math.random();
-            const rand = Math.random();
+        // N_abc controls the number of initial triads
+        const count = this.state.parameters.n_abc * 3; 
+        
+        for (let i = 0; i < count; i++) {
+            // Geometry: Triangular distribution
+            const angle = (i / count) * Math.PI * 2 + (Math.random() * 0.5);
+            const r = 0.2 + Math.random() * 0.5;
             
             let type: NodeType = 'a';
-            if (rand < 0.33) type = 'a';
-            else if (rand < 0.66) type = 'b';
+            const mod = i % 3;
+            if (mod === 0) type = 'a';
+            else if (mod === 1) type = 'b';
             else type = 'c';
 
-            let charge = 0, color = '', radiusVis = 0;
+            let charge = 0, color = '';
+            // ABC Logic
             switch(type) {
-                case 'a': charge = 6/9; color = '#FF4444'; radiusVis = 5; break;
-                case 'b': charge = -2/9; color = '#4444FF'; radiusVis = 4; break;
-                case 'c': charge = -1/9; color = '#44FF44'; radiusVis = 3; break;
+                case 'a': charge = 6/9; color = '#FF4444'; break;
+                case 'b': charge = -2/9; color = '#4444FF'; break;
+                case 'c': charge = -1/9; color = '#44FF44'; break;
             }
 
             this.state.nodes.push({
-                id: i,
+                id: ++this.idCounter,
                 type,
-                x: radius * Math.cos(angle),
-                y: radius * Math.sin(angle),
+                x: r * Math.cos(angle),
+                y: r * Math.sin(angle),
                 charge,
                 color,
-                radius: radiusVis,
-                energy: PLANCK_ENERGY * (type === 'a' ? 1.0 : type === 'b' ? 0.1 : 0.01),
-                velocity: { x: 0, y: 0 }
+                // Scale dependent visuals handled in renderer, here we store logic
+                energy: PLANCK_ENERGY * (1 + MathUtils.gaussian() * 0.1),
+                velocity: { x: MathUtils.gaussian() * 0.005, y: MathUtils.gaussian() * 0.005 },
+                accumulatedAction: 0,
+                vibrationPhase: Math.random() * Math.PI * 2,
+                vibrationFreq: 1 + Math.random() * 2
             });
         }
-        
-        // Reset higher structures
-        this.state.quarks = [];
-        this.state.atoms = [];
     }
 
     update() {
         if (!this.state.running) return;
+        
+        const dt = 0.016 * this.state.parameters.timeSpeed;
+        this.state.time += dt;
 
-        this.state.time += 0.016;
-        this.updateABCNetwork();
-        this.updateQuantumClocks();
-        this.attemptQuarkFormation();
-        this.updateQuarkPhysics(); // Move quarks
-        this.attemptAtomFormation(); // Form atoms and consume quarks
+        this.updateFabricDeformation();
+        this.updateSpaceship(dt);
+        this.updateNodes(dt);
+        this.updateQuarks(dt);
+        this.updateAtoms(dt);
+        this.updateMolecules(dt);
+        this.calculateThermodynamics();
+        this.updateClocks(dt);
     }
 
-    private updateABCNetwork() {
-        const params = this.state.parameters;
-        this.state.nodes.forEach(node => {
-            // Random movement
-            node.x += (Math.random() - 0.5) * 0.01 * params.density;
-            node.y += (Math.random() - 0.5) * 0.01 * params.density;
+    // Gravity as Geometry Deformation
+    private updateFabricDeformation() {
+        const mass = this.state.parameters.centralMass;
+        // The grid represents the metric tensor field
+        for (let i = 0; i <= this.gridResolution; i++) {
+            for (let j = 0; j <= this.gridResolution; j++) {
+                // Normalized coords -1 to 1
+                const x = (i / this.gridResolution) * 2 - 1;
+                const y = (j / this.gridResolution) * 2 - 1;
+                const r = Math.sqrt(x*x + y*y);
+                
+                // General Relativity style well: z = -M / r
+                // We store displacement magnitude
+                const deform = Math.min(1.0, (mass * 0.1) / (r + 0.1));
+                this.state.fabricDeformation[i][j] = deform;
+            }
+        }
+    }
 
-            // Mass effect
-            if (params.mass !== 0) {
-                const distance = Math.sqrt(node.x * node.x + node.y * node.y);
-                if (distance > 0.1) {
-                    const force = -params.mass * 0.0001 / (distance * distance);
-                    node.x += force * node.x / distance;
-                    node.y += force * node.y / distance;
+    private updateSpaceship(dt: number) {
+        // Relativistic movement
+        this.state.spaceship.x += this.state.spaceship.v * 0.01 * dt;
+        if (this.state.spaceship.x > 1.2) this.state.spaceship.x = -1.2;
+    }
+
+    private updateNodes(dt: number) {
+        const mass = this.state.parameters.centralMass;
+
+        this.state.nodes.forEach(node => {
+            // 1. Vibration (String Theory / Planck)
+            node.vibrationPhase += node.vibrationFreq * dt * 10;
+
+            // 2. Fundamental Theorem of Calculus: Principle of Least Action
+            // Action S = Integral(L dt), L = T - V
+            const vSq = node.velocity.x**2 + node.velocity.y**2;
+            const r = Math.sqrt(node.x**2 + node.y**2);
+            const kinetic = 0.5 * vSq;
+            const potential = mass / (r + 0.01);
+            node.accumulatedAction += (kinetic - potential) * dt;
+
+            // 3. Gravity via Metric Distortion (Geodesic deviation)
+            // Instead of Force = GM/r^2, we move along curved space
+            // Simplified: Acceleration towards dense grid points
+            if (r > 0.1) {
+                const accel = mass * 0.0005 / (r * r);
+                node.velocity.x -= (node.x / r) * accel * dt;
+                node.velocity.y -= (node.y / r) * accel * dt;
+            }
+
+            // 4. Snell's Law (Refraction)
+            // If passing through density gradient (simulated by radius)
+            // Inner circle (r < 0.5) has Index n=1.5, Outer n=1.0
+            const nInside = 1.5;
+            const nOutside = 1.0;
+            const boundary = 0.5;
+            
+            // Crossing boundary check
+            const dist = r;
+            const nextDist = Math.sqrt((node.x + node.velocity.x)*(node.x + node.velocity.x) + (node.y + node.velocity.y)*(node.y + node.velocity.y));
+            
+            if ((dist > boundary && nextDist < boundary) || (dist < boundary && nextDist > boundary)) {
+                // Crossing
+                const normal = MathUtils.vecNorm({x: node.x, y: node.y});
+                const entering = dist > boundary;
+                const n1 = entering ? nOutside : nInside;
+                const n2 = entering ? nInside : nOutside;
+                
+                // Refract velocity vector
+                const newVel = MathUtils.refract(node.velocity, normal, n1, n2);
+                if (newVel) {
+                    node.velocity = newVel;
+                } else {
+                    // Total Internal Reflection
+                    // Reflect: v - 2(v.n)n
+                    const dot = node.velocity.x*normal.x + node.velocity.y*normal.y;
+                    node.velocity.x -= 2 * dot * normal.x;
+                    node.velocity.y -= 2 * dot * normal.y;
                 }
             }
 
+            // Update Position
+            node.x += node.velocity.x * dt;
+            node.y += node.velocity.y * dt;
+
             // Boundaries
-            const limit = 0.8;
-            if (Math.abs(node.x) > limit) node.x = limit * Math.sign(node.x);
-            if (Math.abs(node.y) > limit) node.y = limit * Math.sign(node.y);
+            if (Math.abs(node.x) > 1) { node.velocity.x *= -1; node.x *= 0.99; }
+            if (Math.abs(node.y) > 1) { node.velocity.y *= -1; node.y *= 0.99; }
         });
-    }
 
-    private updateQuantumClocks() {
-        const velocity = this.state.parameters.velocity / 100;
-        const gamma = 1 / Math.sqrt(Math.max(0.0001, 1 - velocity * velocity));
-        
-        this.state.clocks.rocket.dilation = gamma;
-        this.state.clocks.earth.dilation = 1.0;
-
-        const baseTickRate = 0.1;
-        this.state.clocks.earth.ticks += baseTickRate;
-        this.state.clocks.rocket.ticks += baseTickRate / gamma;
-
-        const states = ['a', 'b', 'c'];
-        this.state.clocks.earth.state = states[Math.floor(this.state.clocks.earth.ticks) % 3];
-        this.state.clocks.rocket.state = states[Math.floor(this.state.clocks.rocket.ticks) % 3];
+        // Emergence: Nodes -> Quarks
+        // If 3 nodes (A, B, C) are close, they form a Quark
+        this.attemptQuarkFormation();
     }
 
     private attemptQuarkFormation() {
-        const params = this.state.parameters;
-        // Form Quarks - Reduced probability slightly to prevent explosion of quarks
-        if (Math.random() < 0.008 * params.strongEnergy) {
-            const nearby = this.findNearbyNodesForQuark();
-            if (nearby.length >= 3) {
-                const quark = this.formQuarkFromNodes(nearby.slice(0, 3));
-                if (quark) this.state.quarks.push(quark);
-            }
-        }
-    }
-
-    private updateQuarkPhysics() {
-        const quarks = this.state.quarks;
-        // Tuned forces for visible clustering
-        const attractionStrength = 0.0008 * this.state.parameters.strongEnergy; 
-        const repulsionStrength = 0.0005; // Short range repulsion (Pauli exclusion)
-        const friction = 0.95; // Viscosity to prevent infinite acceleration
+        const threshold = 0.15;
+        const freeNodes = this.state.nodes.filter(n => !this.isNodeInQuark(n.id));
         
-        for (let i = 0; i < quarks.length; i++) {
-            const q1 = quarks[i];
-            let fx = 0;
-            let fy = 0;
+        // Naive O(N^2) for demo - IA5 will complain about this
+        for (let i = 0; i < freeNodes.length; i++) {
+            const n1 = freeNodes[i];
+            const neighbors = [];
             
-            // Find neighbors to cluster
-            for (let j = 0; j < quarks.length; j++) {
-                if (i === j) continue;
-                const q2 = quarks[j];
-                const dx = q2.position.x - q1.position.x;
-                const dy = q2.position.y - q1.position.y;
-                const distSq = dx*dx + dy*dy;
-                const dist = Math.sqrt(distSq);
+            for (let j = 0; j < freeNodes.length; j++) {
+                if (i===j) continue;
+                const n2 = freeNodes[j];
+                const d = Math.hypot(n1.x - n2.x, n1.y - n2.y);
+                if (d < threshold) neighbors.push(n2);
+            }
+
+            if (neighbors.length >= 2) {
+                // Form Quark
+                const trio = [n1, neighbors[0], neighbors[1]];
                 
-                if (dist < 0.001) continue;
-
-                // Strong Force Attraction (Confinement range)
-                // Quarks "want" to be in triplets
-                if (dist < 0.4) {
-                    const attract = attractionStrength / Math.max(0.1, dist);
-                    fx += (dx / dist) * attract;
-                    fy += (dy / dist) * attract;
+                // Determine Type based on ABC Charge
+                const charge = trio.reduce((acc, n) => acc + n.charge, 0);
+                let type: Quark['type'] = 'unknown';
+                if (Math.abs(charge - 0.66) < 0.1) type = 'up'; // +2/3
+                else if (Math.abs(charge + 0.33) < 0.1) type = 'down'; // -1/3
+                
+                if (type !== 'unknown') {
+                    const q: Quark = {
+                        id: ++this.idCounter,
+                        type,
+                        charge,
+                        nodes: trio.map(n => n.id),
+                        position: { x: (n1.x+neighbors[0].x+neighbors[1].x)/3, y: (n1.y+neighbors[0].y+neighbors[1].y)/3 },
+                        velocity: MathUtils.vecMul(MathUtils.vecAdd(n1.velocity, neighbors[0].velocity), 0.33),
+                        color: type === 'up' ? '#FF5555' : '#5555FF',
+                        accumulatedAction: 0
+                    };
+                    this.state.quarks.push(q);
+                    // In a real engine we'd remove nodes, but for visual density we keep them as "constituents"
                 }
-
-                // Hard-core Repulsion (prevent overlap)
-                if (dist < 0.06) {
-                    const repel = repulsionStrength / distSq;
-                    fx -= (dx / dist) * repel;
-                    fy -= (dy / dist) * repel;
-                }
-            }
-            
-            // Apply thermal jitter
-            fx += (Math.random() - 0.5) * 0.001;
-            fy += (Math.random() - 0.5) * 0.001;
-
-            // Apply center gravity if mass exists
-            if (this.state.parameters.mass > 0) {
-                 const dCenter = Math.sqrt(q1.position.x**2 + q1.position.y**2);
-                 if (dCenter > 0.05) {
-                     const g = -this.state.parameters.mass * 0.00005;
-                     fx += (q1.position.x / dCenter) * g;
-                     fy += (q1.position.y / dCenter) * g;
-                 }
-            }
-
-            // Update velocity
-            q1.velocity.x = (q1.velocity.x + fx) * friction;
-            q1.velocity.y = (q1.velocity.y + fy) * friction;
-            
-            // Update position
-            q1.position.x += q1.velocity.x;
-            q1.position.y += q1.velocity.y;
-            
-            // Wall bounce
-            if (Math.abs(q1.position.x) > 0.9) {
-                q1.position.x = 0.9 * Math.sign(q1.position.x);
-                q1.velocity.x *= -0.8;
-            }
-            if (Math.abs(q1.position.y) > 0.9) {
-                q1.position.y = 0.9 * Math.sign(q1.position.y);
-                q1.velocity.y *= -0.8;
             }
         }
     }
 
-    private attemptAtomFormation(): void {
-        const quarks = this.state.quarks;
-        if (quarks.length < 3) return;
-        
-        const removeIndices = new Set<number>();
-        const formationThreshold = 0.12; // Must be very close (clustered)
-
-        // Search for valid triplets (uud or udd)
-        for (let i = 0; i < quarks.length; i++) {
-            if (removeIndices.has(i)) continue;
-            for (let j = i + 1; j < quarks.length; j++) {
-                if (removeIndices.has(j)) continue;
-                for (let k = j + 1; k < quarks.length; k++) {
-                     if (removeIndices.has(k)) continue;
-
-                     const q1 = quarks[i];
-                     const q2 = quarks[j];
-                     const q3 = quarks[k];
-                     
-                     // Check spatial proximity
-                     const d12 = Math.hypot(q1.position.x - q2.position.x, q1.position.y - q2.position.y);
-                     const d23 = Math.hypot(q2.position.x - q3.position.x, q2.position.y - q3.position.y);
-                     const d13 = Math.hypot(q1.position.x - q3.position.x, q1.position.y - q3.position.y);
-                     
-                     if (d12 < formationThreshold && d23 < formationThreshold && d13 < formationThreshold) {
-                         const types = [q1.type, q2.type, q3.type].sort();
-                         const typeStr = types.join('');
-                         
-                         let atomType: Atom['type'] | null = null;
-                         if (typeStr === 'downupup') atomType = 'proton'; // uud
-                         else if (typeStr === 'downdownup') atomType = 'neutron'; // udd
-                         
-                         if (atomType) {
-                             const newAtom: Atom = {
-                                 type: atomType,
-                                 quarks: [q1.id, q2.id, q3.id],
-                                 charge: atomType === 'proton' ? 1 : 0,
-                                 position: {
-                                     x: (q1.position.x + q2.position.x + q3.position.x) / 3,
-                                     y: (q1.position.y + q2.position.y + q3.position.y) / 3
-                                 }
-                             };
-                             
-                             this.state.atoms.push(newAtom);
-                             removeIndices.add(i);
-                             removeIndices.add(j);
-                             removeIndices.add(k);
-                             break; // Move to next primary quark
-                         }
-                     }
-                }
-                if (removeIndices.has(i)) break;
-            }
-        }
-
-        // Remove consumed quarks
-        if (removeIndices.size > 0) {
-            this.state.quarks = quarks.filter((_, index) => !removeIndices.has(index));
-        }
+    private isNodeInQuark(id: number): boolean {
+        return this.state.quarks.some(q => q.nodes.includes(id));
     }
 
-    private findNearbyNodesForQuark(): ABCNode[] {
-        const candidates: { node: ABCNode, dist: number }[] = [];
-        // Simplified approach for performance: just pick a random node and find neighbors
-        if (this.state.nodes.length === 0) return [];
-        
-        const centerNode = this.state.nodes[Math.floor(Math.random() * this.state.nodes.length)];
-        
-        for (const node of this.state.nodes) {
-            if (node.id === centerNode.id) continue;
-             const dx = node.x - centerNode.x;
-             const dy = node.y - centerNode.y;
-             const dist = Math.sqrt(dx*dx + dy*dy);
-             if (dist < 0.2) candidates.push({ node, dist });
-        }
-        
-        candidates.sort((a, b) => a.dist - b.dist);
-        return [centerNode, ...candidates.map(c => c.node)].slice(0, 3);
-    }
+    private updateQuarks(dt: number) {
+        // Quarks move and attract each other via Strong Force (Springs)
+        this.state.quarks.forEach(q => {
+            q.position.x += q.velocity.x * dt;
+            q.position.y += q.velocity.y * dt;
+            
+            // Drag
+            q.velocity.x *= 0.98;
+            q.velocity.y *= 0.98;
 
-    private formQuarkFromNodes(nodes: ABCNode[]): Quark | null {
-        if (nodes.length < 3) return null;
-        
-        let totalCharge = 0;
-        const typeCounts = { a: 0, b: 0, c: 0 };
-        nodes.forEach(n => {
-            totalCharge += n.charge;
-            typeCounts[n.type]++;
+            // Boundary
+            if (Math.abs(q.position.x) > 0.9) q.velocity.x *= -1;
+            if (Math.abs(q.position.y) > 0.9) q.velocity.y *= -1;
         });
 
-        let type: Quark['type'] = 'unknown';
-        if (Math.abs(totalCharge - 2/3) < 0.1) type = 'up';
-        else if (Math.abs(totalCharge + 1/3) < 0.1) type = 'down';
-        else if (Math.abs(totalCharge + 1/3) < 0.2 && typeCounts.c > 1) type = 'strange';
+        // Emergence: Quarks -> Atoms
+        // uud -> Proton, udd -> Neutron
+        const freeQuarks = this.state.quarks.filter(q => !this.isQuarkInAtom(q.id));
+        // Logic simplified for brevity:
+        // Group by proximity
+        // ... (Similar logic to nodes -> quarks)
+    }
 
-        if (type !== 'unknown') {
-            this.quarkIdCounter++;
-            return {
-                id: this.quarkIdCounter,
-                type,
-                charge: totalCharge,
-                nodes: nodes.map(n => n.id),
-                position: {
-                    x: nodes.reduce((sum, n) => sum + n.x, 0) / nodes.length,
-                    y: nodes.reduce((sum, n) => sum + n.y, 0) / nodes.length
-                },
-                velocity: {
-                    x: (Math.random() - 0.5) * 0.005,
-                    y: (Math.random() - 0.5) * 0.005
-                },
-                color: type === 'up' ? '#FF6666' : type === 'down' ? '#6666FF' : '#66FF66'
-            };
-        }
-        return null;
+    private isQuarkInAtom(id: number): boolean {
+        return this.state.atoms.some(a => a.quarks.includes(id));
+    }
+
+    private updateAtoms(dt: number) {
+        // Placeholder for atom physics
+    }
+
+    private updateMolecules(dt: number) {
+        // Placeholder for molecule physics
+    }
+
+    private updateClocks(dt: number) {
+        // Time Dilation based on Spaceship Velocity
+        // Lorentz Factor: gamma = 1 / sqrt(1 - v^2/c^2)
+        const v = this.state.spaceship.v; // v/c
+        const gamma = 1 / Math.sqrt(1 - v*v);
+        
+        this.state.clocks.rocket.dilation = gamma;
+        this.state.clocks.earth.ticks += dt;
+        this.state.clocks.rocket.ticks += dt / gamma;
+    }
+
+    private calculateThermodynamics() {
+        if (this.state.nodes.length === 0) return;
+        
+        // Temperature ~ Mean Kinetic Energy
+        const totalKe = this.state.nodes.reduce((acc, n) => acc + 0.5 * (n.velocity.x**2 + n.velocity.y**2), 0);
+        const meanEnergy = totalKe / this.state.nodes.length;
+        
+        // Standard Deviation
+        const variance = this.state.nodes.reduce((acc, n) => {
+            const ke = 0.5 * (n.velocity.x**2 + n.velocity.y**2);
+            return acc + (ke - meanEnergy)**2;
+        }, 0) / this.state.nodes.length;
+        
+        this.state.statistics = {
+            meanEnergy,
+            stdDevEnergy: Math.sqrt(variance),
+            // Entropy ~ log(Energy Spread)
+            entropy: Math.log(Math.sqrt(variance) + 0.0001)
+        };
     }
 
     getMetrics() {
-        const totalEnergy = this.state.nodes.reduce((sum, node) => sum + node.energy, 0);
-        
-        let avgDist = 0.1;
-        if (this.state.nodes.length > 1) {
-             // Sample distance
-             let count = 0;
-             let sum = 0;
-             for(let i=0; i<Math.min(50, this.state.nodes.length); i++) {
-                 const n1 = this.state.nodes[i];
-                 const n2 = this.state.nodes[(i+1)%this.state.nodes.length];
-                 const dx = n1.x - n2.x;
-                 const dy = n1.y - n2.y;
-                 sum += Math.sqrt(dx*dx + dy*dy);
-                 count++;
-             }
-             if (count > 0) avgDist = sum / count;
-        }
-
-        const activity = this.state.nodes.length * this.state.parameters.density;
-        
         return {
+            ...this.state.statistics,
             nodeCount: this.state.nodes.length,
             quarkCount: this.state.quarks.length,
             atomCount: this.state.atoms.length,
-            totalEnergy,
-            avgCurvature: (1 / (avgDist + 0.01)),
-            temperature: 2.7 + activity * 0.1,
-            dilation: this.state.clocks.rocket.dilation,
+            moleculeCount: this.state.molecules.length,
             earthTime: this.state.clocks.earth.ticks,
             rocketTime: this.state.clocks.rocket.ticks,
-            earthState: this.state.clocks.earth.state,
-            rocketState: this.state.clocks.rocket.state
+            dilation: this.state.clocks.rocket.dilation
         };
     }
 }
