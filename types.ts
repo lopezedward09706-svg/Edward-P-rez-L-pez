@@ -1,100 +1,139 @@
 
 export type NodeType = 'a' | 'b' | 'c';
+export type ParticleClass = 'proton' | 'neutron' | 'electron-node' | 'vacuum';
+export type CosmicPhase = 'PRIMORDIAL' | 'HADRONIC' | 'ATOMIC' | 'MOLECULAR' | 'STELLAR' | 'COSMIC';
+export type Severity = 'INFO' | 'WARN' | 'ERROR';
+export type TaskType = 'ANALYSIS' | 'GENERATION' | 'CORRECTION' | 'CODE_SCAN' | 'ENTANGLEMENT' | 'OBSERVATION' | 'OPTIMIZATION' | 'COLLAPSE';
+
+export interface Vector3 {
+    x: number;
+    y: number;
+    z: number;
+}
+
+export interface PhysicalConstants {
+    G: number;      // Gravitación
+    c: number;      // Velocidad luz
+    hbar: number;   // Planck reducida
+    alpha: number;  // Estructura fina
+    k_B: number;    // Boltzmann
+}
+
+export interface LogEntry {
+    timestamp: string;
+    text: string;
+    severity: Severity;
+    taskType: TaskType;
+    tag: string;
+    iaId: number;
+}
 
 export interface ABCNode {
     id: number;
     type: NodeType;
+    particleClass: ParticleClass;
     x: number;
     y: number;
-    charge: number;
+    z: number;
+    vecA: Vector3;
+    vecB: Vector3;
+    vecC: Vector3;
+    
+    // Propiedades Particulares Emergentes (Leyes I-V)
+    topologicalCharge: number; 
+    hamiltonianTension: number; 
+    spinVorticity: number;     
+    stabilityStatus: number;   
+    
+    // Arquitectura Atómica (Leyes Atómicas I-V)
+    bindingEnergy: number;     
+    resonanceFreq: number;     
+    nucleusId: number | null;  
+    
+    zeta: number; 
+    residualMass: number; 
+    
     color: string;
-    // Physics properties
-    energy: number;
-    velocity: { x: number; y: number };
-    // Math/Geometry properties
-    accumulatedAction: number; // Fundamental Theorem of Calculus (Integral of Lagrangian)
-    vibrationPhase: number; // For "String/Ray" visualization
-    vibrationFreq: number;
+    velocity: { x: number; y: number; z: number };
+    vibrationPhase: number;
+    isCollapsed: boolean;
+    accumulatedAction: number;
+    superposition: number; // 0.0 a 1.0 (Probabilidad de colapso)
 }
 
 export interface Quark {
     id: number;
-    type: 'up' | 'down' | 'strange' | 'unknown';
-    charge: number;
-    nodes: number[]; // IDs of constituent ABC nodes
+    type: 'up' | 'down';
+    mass: number;
+    nodes: number[];
     position: { x: number; y: number };
-    velocity: { x: number; y: number };
-    color: string;
-    accumulatedAction: number;
+    bindingEnergy: number;
 }
 
 export interface Atom {
     id: number;
-    type: 'proton' | 'neutron' | 'electron'; // Added electron
-    quarks: number[]; // IDs of constituent quarks
-    charge: number;
+    atomicNumber: number;      
+    massNumber: number;        
+    isotopicRatio: number;     
     position: { x: number; y: number };
-    velocity: { x: number; y: number };
-}
-
-export interface Molecule {
-    id: number;
-    atoms: number[];
-    type: 'simple' | 'complex';
-    position: { x: number; y: number };
-    velocity: { x: number; y: number };
-    bonds: number;
+    nodes: number[];           
+    shellCapacity: number;     
+    stability: number;         
 }
 
 export interface SimulationParameters {
-    scale: number; // 0=Planck ... 8=Universe
-    n_abc: number; // Number of triangles
-    // Thermodynamics & Gravity emerge from these, but we keep mass for the central "distortion"
-    centralMass: number; 
-    timeSpeed: number; 
-}
-
-export interface ClockState {
-    ticks: number;
-    state: string;
-    dilation: number;
-}
-
-export interface IAState {
-    confidence: number;
-    running: boolean;
-    results: any[];
-    lastResponse?: string;
-    status: 'idle' | 'scanning' | 'repairing' | 'error';
+    scale: number;
+    n_abc: number;
+    centralMass: number;
+    timeSpeed: number;
+    density: number;
+    strongEnergy: number;
+    darkEnergy: number; 
+    hubbleConstant: number;
+    curvatureK: number;
+    planckConstant: number;
+    radioPi: number;
+    dimensionCount: number;
+    couplingLambda: number; 
+    rigidityK: number; 
+    stabilityLimit: number; 
+    atomicLockingStrength: number; 
+    initialRigidity: number; // k inicial en t=0
 }
 
 export interface GlobalState {
     nodes: ABCNode[];
-    quarks: Quark[];
     atoms: Atom[];
-    molecules: Molecule[];
+    quarks: Quark[];
     time: number;
+    currentPhase: CosmicPhase;
     running: boolean;
-    clocks: {
-        earth: ClockState;
-        rocket: ClockState;
-    };
     parameters: SimulationParameters;
+    constants: PhysicalConstants;
+    expansionFactor: number; 
     statistics: {
         meanEnergy: number;
-        stdDevEnergy: number; // Probability & Stats
-        entropy: number; // Thermodynamics
+        entropy: number; // S_RQNT
+        complexity: number;
+        entanglementIndex: number;
+        coherenceLevel: number;
+        quantumCoherence: number; 
+        hubbleFlow: number;
+        curvature: number;
+        avgZeta: number;
+        totalResidualMass: number;
+        averageCharge: number; 
+        totalAtoms: number;
+        currentRigidity: number; // k(t)
     };
-    fabricDeformation: number[][]; // For grid visualization
-    spaceship: {
-        x: number;
-        y: number;
-        v: number; // % of c
-    };
+    fabricDeformation: number[][];
+    entangledPairs: {id1: number, id2: number, strength: number, frequency: number}[];
+    recentCollapses: { x: number; y: number; time: number; id: number }[];
     sharedMemory: {
-        errors: string[];
-        patches: string[];
         userDeductions: string;
+        evolutionLogs: string[];
+        pendingActions: string[];
+        physicalViolations: string[];
     };
 }
 
@@ -103,4 +142,11 @@ export interface ChatMessage {
     message: string;
     color: string;
     timestamp: Date;
+}
+
+export interface IAState {
+    confidence: number;
+    running: boolean;
+    lastResponse?: string;
+    status: 'idle' | 'scanning' | 'repairing' | 'error' | 'evolving' | 'collapsing';
 }

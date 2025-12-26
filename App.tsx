@@ -6,8 +6,8 @@ import ControlPanel from './components/ControlPanel';
 import SimulationPanel from './components/SimulationPanel';
 import IAPanel from './components/IAPanel';
 import ResultsPanel from './components/ResultsPanel';
-import { INITIAL_PARAMETERS, IA_COLORS } from './constants';
-import { GlobalState, ChatMessage, SimulationParameters, IAState } from './types';
+import { INITIAL_PARAMETERS } from './constants';
+import { GlobalState, ChatMessage, SimulationParameters, IAState, LogEntry, Severity, TaskType } from './types';
 
 const App: React.FC = () => {
     const engineRef = useRef<SimulationEngine>(new SimulationEngine(INITIAL_PARAMETERS));
@@ -16,257 +16,157 @@ const App: React.FC = () => {
     const [params, setParams] = useState<SimulationParameters>(INITIAL_PARAMETERS);
     const [metrics, setMetrics] = useState(engineRef.current.getMetrics());
     const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-    const [iaLogs, setIaLogs] = useState<Record<number, string[]>>({});
+    const [iaLogs, setIaLogs] = useState<Record<number, LogEntry[]>>({});
     const [iaStates, setIaStates] = useState<Record<number, IAState>>({});
-    const [globalConsensus, setGlobalConsensus] = useState(0.0);
     const [notifications, setNotifications] = useState<string[]>([]);
     const [running, setRunning] = useState(false);
 
-    // Initialize IA states
     useEffect(() => {
-        const initialStates: Record<number, IAState> = {};
-        for(let i=1; i<=7; i++) {
-            initialStates[i] = { confidence: 0.0, running: false, results: [], status: 'idle' };
-        }
-        setIaStates(initialStates);
+        const initStates: Record<number, IAState> = {};
+        for(let i=1; i<=8; i++) initStates[i] = { confidence: 0.5, running: false, status: 'idle' };
+        setIaStates(initStates);
     }, []);
 
-    // Animation Loop
     useEffect(() => {
-        let animationId: number;
-        const animate = () => {
+        let id: number;
+        const loop = () => {
             if (running) {
                 engineRef.current.update();
-                setMetrics(engineRef.current.getMetrics());
+                const m = engineRef.current.getMetrics();
+                setMetrics(m);
                 simulationStateRef.current = engineRef.current.state;
+
+                const logs = engineRef.current.state.sharedMemory.evolutionLogs;
+                if (logs.length > 0) {
+                    const l = logs.shift();
+                    if (l) {
+                        setNotifications(n => [l, ...n].slice(0, 10));
+                        if (l.includes("COLAPSO")) addLog(8, l, "INFO", "COLLAPSE", "WAVE_FUNCTION_REDUCTION");
+                        if (l.includes("Transición")) addLog(6, l, "INFO", "OPTIMIZATION", "PHASE_SHIFT");
+                    }
+                }
             }
-            animationId = requestAnimationFrame(animate);
+            id = requestAnimationFrame(loop);
         };
-        animate();
-        return () => cancelAnimationFrame(animationId);
+        id = requestAnimationFrame(loop);
+        return () => cancelAnimationFrame(id);
     }, [running]);
 
-    // --- AUTONOMOUS AI LOOPS ---
-    useEffect(() => {
-        if (!running) return;
-
-        // IA6: The Scanner (Mediator)
-        // Checks simulation health every 5 seconds
-        const ia6Interval = setInterval(() => {
-            const m = engineRef.current.getMetrics();
-            const memory = engineRef.current.state.sharedMemory;
-            
-            // Logic: Scan for physical anomalies
-            const anomalies = [];
-            if (m.meanEnergy > 10e10 || isNaN(m.meanEnergy)) anomalies.push("Energy Divergence Detected");
-            if (m.nodeCount < 10) anomalies.push("Matter Collapse Risk");
-            if (m.entropy < 0) anomalies.push("Entropy Violation (Negative)");
-
-            if (anomalies.length > 0) {
-                const errorMsg = `[IA6 SCAN] Anomalies: ${anomalies.join(', ')}`;
-                memory.errors.push(errorMsg);
-                addLog(6, errorMsg, "WARN", "SCAN");
-                setNotifications(prev => [errorMsg, ...prev].slice(0, 5));
-            } else {
-                // Occasional healthy check log
-                if (Math.random() < 0.2) addLog(6, "System Nominal. Geometry Stable.", "INFO", "CHECK");
-            }
-        }, 5000);
-
-        // IA7: The Repairer
-        // Checks shared memory for errors every 7 seconds
-        const ia7Interval = setInterval(() => {
-            const memory = engineRef.current.state.sharedMemory;
-            if (memory.errors.length > 0) {
-                const error = memory.errors.shift(); // Take oldest error
-                addLog(7, `Attempting repair for: ${error}`, "WARN", "FIX");
-                
-                // Simulate "Self-Repair" logic
-                if (error?.includes("Energy")) {
-                    // Fix: Reduce time speed or mass
-                    engineRef.current.updateParams({ timeSpeed: 0.5 });
-                    const fixMsg = "Applied Patch: Reduced Time Dilation Factor to stabilize Energy.";
-                    memory.patches.push(fixMsg);
-                    addLog(7, fixMsg, "SUCCESS", "PATCH");
-                    setNotifications(prev => [fixMsg, ...prev].slice(0, 5));
-                } else if (error?.includes("Matter")) {
-                    engineRef.current.updateParams({ n_abc: params.n_abc + 20 });
-                    const fixMsg = "Applied Patch: Injected Mass (N_abc increased).";
-                    memory.patches.push(fixMsg);
-                    addLog(7, fixMsg, "SUCCESS", "PATCH");
-                } else {
-                    // Unknown error -> Request Human Help
-                    const helpMsg = `IA7 LIMITATION: Cannot fix '${error}'. User deduction required.`;
-                    setNotifications(prev => [helpMsg, ...prev].slice(0, 5));
-                    addLog(7, helpMsg, "ERROR", "ESCALATE");
-                    setChatHistory(prev => [...prev, {
-                        sender: 'IA7',
-                        message: `Critical Error: ${error}. I cannot resolve this algorithmically. Please input your deduction in the Control Panel.`,
-                        color: IA_COLORS.ia7,
-                        timestamp: new Date()
-                    }]);
-                }
-            } else if (memory.userDeductions) {
-                // Process User Deduction
-                const ded = memory.userDeductions;
-                addLog(7, `Compiling User Deduction: "${ded.substring(0, 20)}..."`, "INFO", "COMPILE");
-                memory.userDeductions = ""; // Clear
-                // Simulate applying user logic
-                addLog(7, "User Logic Integrated into core loop.", "SUCCESS", "UPDATE");
-            }
-        }, 7000);
-
-        return () => {
-            clearInterval(ia6Interval);
-            clearInterval(ia7Interval);
+    const addLog = (iaId: number, text: string, severity: Severity, taskType: TaskType, tag: string) => {
+        const entry: LogEntry = {
+            timestamp: new Date().toLocaleTimeString(),
+            text, severity, taskType, tag, iaId
         };
-    }, [running, params.n_abc]);
-
-    const addLog = (iaId: number, text: string, type: string, tag: string) => {
-        const time = new Date().toLocaleTimeString();
-        const colorClass = type === 'ERROR' ? 'text-red-400' : type === 'WARN' ? 'text-orange-400' : type === 'SUCCESS' ? 'text-green-400' : 'text-blue-400';
-        const html = `<span class="text-gray-500">[${time}]</span> <span class="${colorClass} font-bold">[${tag}]</span> ${text}`;
-        setIaLogs(prev => ({
-            ...prev,
-            [iaId]: [...(prev[iaId] || []), html].slice(-20)
-        }));
-    };
-
-    const handleParamChange = (key: keyof SimulationParameters, value: number) => {
-        const newParams = { ...params, [key]: value };
-        setParams(newParams);
-        engineRef.current.updateParams(newParams);
-    };
-
-    const handleStart = () => {
-        engineRef.current.state.running = true;
-        setRunning(true);
-    };
-
-    const handlePause = () => {
-        engineRef.current.state.running = false;
-        setRunning(false);
-    };
-
-    const handleReset = () => {
-        engineRef.current.reset();
-        setParams(INITIAL_PARAMETERS);
-        setRunning(false);
-        setMetrics(engineRef.current.getMetrics());
-        setNotifications([]);
-        setChatHistory([]);
-    };
-
-    const handleRunAllIAs = () => {
-        // Trigger all IAs to do a manual "Sweep"
-        for(let i=1; i<=7; i++) runIA(i);
-    };
-
-    const handleLoadPreset = (preset: SimulationParameters) => {
-        setParams(preset);
-        engineRef.current.updateParams(preset);
-        setMetrics(engineRef.current.getMetrics());
-    };
-
-    const handleSaveDeduction = (text: string) => {
-        if (!text) return;
-        engineRef.current.state.sharedMemory.userDeductions = text;
-        addLog(6, "New User Deduction received in Shared Memory.", "INFO", "INPUT");
-        setNotifications(prev => ["User Deduction Queued for IA7", ...prev].slice(0, 5));
-    };
-
-    const handleSendMessage = (msg: string) => {
-        setChatHistory(prev => [...prev, {
-            sender: 'User',
-            message: msg,
-            color: IA_COLORS.user,
-            timestamp: new Date()
-        }]);
+        setIaLogs(prev => ({ ...prev, [iaId]: [...(prev[iaId] || []), entry].slice(-50) }));
     };
 
     const runIA = async (id: number, args?: string) => {
-        setIaStates(prev => ({ ...prev, [id]: { ...prev[id], running: true } }));
-        
-        let modelName = "gemini-2.5-flash";
-        let prompt = `Analyze simulation state.`;
+        setIaStates(s => ({ ...s, [id]: { ...s[id], running: true, status: 'scanning' } }));
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const m = metrics;
+        const state = simulationStateRef.current;
+        let prompt = "";
+        let taskType: TaskType = 'ANALYSIS';
 
-        // Simplified interaction for visual demo
+        // Definición de roles específicos para el prompt
+        switch(id) {
+            case 1:
+                taskType = 'ANALYSIS';
+                prompt = `IA1 [EXPERIMENTAL]: Analiza la densidad actual (${params.density}) y la energía fuerte (${params.strongEnergy}). ¿Son consistentes los datos experimentales con la fase ${m.phase}?`;
+                break;
+            case 2:
+                taskType = 'GENERATION';
+                prompt = `IA2 [TEÓRICA]: Basado en la rigidez k=${m.currentRigidity.toFixed(3)}, propone una extensión a las leyes de torsión de nudo para la fase ${m.phase}.`;
+                break;
+            case 3:
+                taskType = 'OBSERVATION';
+                const userText = state.sharedMemory.userDeductions || "Sin datos.";
+                prompt = `IA3 [CONSENSO]: Valida científicamente esta deducción del usuario: "${userText}". 
+                Contexto: Fase ${m.phase}, Entropía ${m.entropy.toFixed(4)}, Coherencia ${m.quantumCoherence.toFixed(4)}. 
+                Determina si es una observación válida bajo la Teoría ABC.`;
+                break;
+            case 5:
+                taskType = 'CODE_SCAN';
+                prompt = `IA5 [AUDITOR]: Escanea la lógica del motor de simulación. Estado: k=${m.currentRigidity.toFixed(2)}, escala=${params.scale}. 
+                Busca anomalías de integridad. Si encuentras algo, responde con 'ACTION_IA7: [instrucción]' para repararlo.`;
+                break;
+            case 6:
+                taskType = 'OPTIMIZATION';
+                prompt = `IA6 [MEDIADOR]: Sugiere ajustes para los parámetros lambda y radioPi para maximizar la estabilidad en la fase ${m.phase}.`;
+                break;
+            case 7:
+                taskType = 'CORRECTION';
+                const pending = state.sharedMemory.pendingActions.join(", ") || "Ninguna";
+                prompt = `IA7 [PROGRAMADOR]: Ejecuta correcciones sobre el motor. Acciones pendientes: ${pending}. Describe el parche lógico que aplicarías.`;
+                break;
+            case 8:
+                taskType = 'ENTANGLEMENT';
+                prompt = `IA8 [CUÁNTICA]: Analiza el entrelazamiento cuántico (Índice: ${m.entanglementIndex.toFixed(4)}) y el nivel de coherencia (${m.quantumCoherence.toFixed(4)}).`;
+                break;
+            default:
+                prompt = `IA${id}: Reporte general del sistema en fase ${m.phase}.`;
+        }
+
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-            // In a real app, we would send detailed JSON metrics
-            const response = await ai.models.generateContent({
-                model: modelName,
-                contents: `You are IA${id} of the ABC Simulation. 
-                Role: ${id===6 ? 'Scanner' : id===7 ? 'Repairer' : 'Analyst'}.
-                Current Stats: ${JSON.stringify(metrics)}.
-                User Input: ${args || 'None'}.
-                Provide a short status report.`
+            const resp = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: prompt
             });
-
-            const text = response.text || "Systems nominal.";
+            const text = resp.text || "Análisis completado sin observaciones adicionales.";
             
-            setIaStates(prev => ({
-                ...prev,
-                [id]: {
-                    ...prev[id],
-                    running: false,
-                    confidence: 0.9,
-                    lastResponse: text
-                }
-            }));
+            // Post-procesamiento de IA5 para generar acciones para IA7
+            if (id === 5 && text.includes("ACTION_IA7:")) {
+                const action = text.split("ACTION_IA7:")[1].split("\n")[0].trim();
+                state.sharedMemory.pendingActions.push(action);
+                addLog(5, `⚠️ IA5 detectó vulnerabilidad lógica: Generando orden de reparación -> ${action}`, "WARN", "CODE_SCAN", "SYS_INTEGRITY");
+            }
 
-            addLog(id, "Manual Cycle Complete", "INFO", "DONE");
+            const confidenceScore = 0.75 + Math.random() * 0.22;
+            setIaStates(s => ({ ...s, [id]: { ...s[id], running: false, lastResponse: text, confidence: confidenceScore, status: 'idle' } }));
+            
+            if (id !== 5 || !text.includes("ACTION_IA7:")) {
+                addLog(id, "Reporte neuronal procesado con éxito.", "INFO", taskType, "SUCCESS");
+            }
 
-        } catch (error: any) {
-             setIaStates(prev => ({ ...prev, [id]: { ...prev[id], running: false } }));
-             addLog(id, `Connection Error`, "ERROR", "FAIL");
+        } catch (e) {
+            setIaStates(s => ({ ...s, [id]: { ...s[id], running: false, status: 'error' } }));
+            addLog(id, "Fallo en la sincronización del modelo. Error de red neuronal.", "ERROR", taskType, "API_FAILURE");
         }
     };
 
     return (
-        <div className="flex h-screen bg-gray-900 text-white p-2 gap-2 overflow-hidden">
-             <div className="w-80 flex flex-col gap-2">
-                 <div className="flex-1 overflow-hidden">
-                     <ControlPanel 
-                         params={params}
-                         onParamChange={handleParamChange}
-                         onStart={handleStart}
-                         onPause={handlePause}
-                         onReset={handleReset}
-                         onRunAllIAs={handleRunAllIAs}
-                         onLoadPreset={handleLoadPreset}
-                         onSaveDeduction={handleSaveDeduction}
-                     />
-                 </div>
-                 <div className="h-64 overflow-hidden">
-                     <ResultsPanel 
-                         iaStates={iaStates}
-                         globalConsensus={globalConsensus}
-                         notifications={notifications}
-                         onExport={() => {}}
-                     />
-                 </div>
-             </div>
-             
-             <div className="flex-1 flex flex-col gap-2">
-                 <div className="flex-1 overflow-hidden">
-                     <SimulationPanel 
-                         metrics={metrics}
-                         simulationStateRef={simulationStateRef}
-                     />
-                 </div>
-             </div>
-
-             <div className="w-80 flex flex-col gap-2">
-                 <div className="flex-1 overflow-hidden">
-                     <IAPanel 
-                         chatHistory={chatHistory}
-                         onSendMessage={handleSendMessage}
-                         onRunIA={runIA}
-                         iaLogs={iaLogs}
-                     />
-                 </div>
-             </div>
+        <div className="flex h-screen bg-[#02020a] text-white p-2 gap-2 overflow-hidden font-sans">
+            <div className="w-80 flex flex-col gap-2">
+                <div className="bg-glass backdrop-blur-md border border-white/10 rounded-xl p-4 flex flex-col h-[55%] overflow-y-auto custom-scrollbar shadow-2xl">
+                    <ControlPanel params={params} 
+                        onParamChange={(k, v) => { engineRef.current.updateParams({[k]: v}); setParams({...params, [k]: v}); }} 
+                        onStart={() => setRunning(true)} 
+                        onPause={() => setRunning(false)} 
+                        onReset={() => { engineRef.current.reset(); setRunning(false); }} 
+                        onRunAllIAs={() => [1,2,3,4,5,6,7,8].forEach(id => runIA(id))} 
+                        onLoadPreset={p => { if(p) { setParams(p); engineRef.current.updateParams(p); } }} 
+                        onSaveDeduction={d => { simulationStateRef.current.sharedMemory.userDeductions = d; }} 
+                    />
+                </div>
+                <ResultsPanel iaStates={iaStates} globalConsensus={metrics.coherenceLevel} notifications={notifications} onExport={() => {}} />
+            </div>
+            <div className="flex-1 overflow-hidden flex flex-col">
+                <div className="flex-1">
+                    <SimulationPanel metrics={metrics} simulationStateRef={simulationStateRef} />
+                </div>
+                <div className="mt-2 bg-black/60 border border-white/10 rounded-lg p-3 text-[10px] font-mono flex items-center justify-between shadow-2xl">
+                    <div className="flex gap-6 overflow-x-auto whitespace-nowrap z-10 custom-scrollbar-h">
+                        <span className="text-cyan-400 uppercase font-black">Fase: {metrics.phase}</span>
+                        <span className="text-pink-400">Coherencia Ψ: {metrics.quantumCoherence.toFixed(4)}</span>
+                        <span className="text-orange-400">Rigidez k: {metrics.currentRigidity.toFixed(3)}</span>
+                        <span className="text-yellow-400">Quarks Formados: {simulationStateRef.current.quarks.length}</span>
+                        <span className="text-ia7">Parches IA7: {simulationStateRef.current.sharedMemory.pendingActions.length}</span>
+                    </div>
+                </div>
+            </div>
+            <div className="w-80">
+                <IAPanel chatHistory={chatHistory} onSendMessage={m => setChatHistory([...chatHistory, {sender:'Usuario', message:m, color:'#fff', timestamp:new Date()}])} onRunIA={runIA} iaLogs={iaLogs} userDeductions={simulationStateRef.current.sharedMemory.userDeductions} />
+            </div>
         </div>
     );
 };
