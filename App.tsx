@@ -6,20 +6,29 @@ import ControlPanel from './components/ControlPanel';
 import SimulationPanel from './components/SimulationPanel';
 import IAPanel from './components/IAPanel';
 import ResultsPanel from './components/ResultsPanel';
-import { INITIAL_PARAMETERS } from './constants';
-import { GlobalState, ChatMessage, SimulationParameters, IAState, LogEntry, Severity, TaskType } from './types';
+import QuantumFoamSimulation from './components/QuantumFoamSimulation';
+import FullTheorySimulation from './components/FullTheorySimulation';
+import { INITIAL_PARAMETERS, IA_COLORS } from './constants';
+import { GlobalState, ChatMessage, SimulationParameters, IAState, TheoryTestResult } from './types';
+import { TheoryAuditor } from './services/theoryAuditor';
+import { QuantumBridge } from './services/quantumBridge';
+
+type ViewMode = 'CORE' | 'FOAM' | 'THEORY';
 
 const App: React.FC = () => {
     const engineRef = useRef<SimulationEngine>(new SimulationEngine(INITIAL_PARAMETERS));
     const simulationStateRef = useRef<GlobalState>(engineRef.current.state);
+    const bridgeRef = useRef<QuantumBridge>(QuantumBridge.getInstance());
 
     const [params, setParams] = useState<SimulationParameters>(INITIAL_PARAMETERS);
     const [metrics, setMetrics] = useState(engineRef.current.getMetrics());
     const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-    const [iaLogs, setIaLogs] = useState<Record<number, LogEntry[]>>({});
+    const [iaLogs, setIaLogs] = useState<Record<number, string[]>>({});
     const [iaStates, setIaStates] = useState<Record<number, IAState>>({});
     const [notifications, setNotifications] = useState<string[]>([]);
     const [running, setRunning] = useState(false);
+    const [viewMode, setViewMode] = useState<ViewMode>('CORE');
+    const [results, setResults] = useState<TheoryTestResult[]>([]);
 
     useEffect(() => {
         const initStates: Record<number, IAState> = {};
@@ -28,8 +37,15 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
+        const auditor = new TheoryAuditor();
+        setResults(auditor.runSuite());
+    }, [params]);
+
+    useEffect(() => {
         let id: number;
-        const loop = () => {
+        let lastBroadcast = 0;
+        
+        const loop = (time: number) => {
             if (running) {
                 engineRef.current.update();
                 const m = engineRef.current.getMetrics();
@@ -39,105 +55,59 @@ const App: React.FC = () => {
                 const logs = engineRef.current.state.sharedMemory.evolutionLogs;
                 if (logs.length > 0) {
                     const l = logs.shift();
-                    if (l) {
-                        setNotifications(n => [l, ...n].slice(0, 10));
-                        if (l.includes("COLAPSO")) addLog(8, l, "INFO", "COLLAPSE", "WAVE_FUNCTION_REDUCTION");
-                        if (l.includes("Transición")) addLog(6, l, "INFO", "OPTIMIZATION", "PHASE_SHIFT");
+                    if (l) { 
+                        setNotifications(n => [l, ...n].slice(0, 8)); 
                     }
+                }
+
+                if (time - lastBroadcast > 200) {
+                    const passedCount = results.filter(r => r.passed).length;
+                    bridgeRef.current.broadcast({
+                        gamma: m.entropy,
+                        phi: params.radioPi,
+                        score: (passedCount / 10) * 100
+                    });
+                    lastBroadcast = time;
                 }
             }
             id = requestAnimationFrame(loop);
         };
         id = requestAnimationFrame(loop);
         return () => cancelAnimationFrame(id);
-    }, [running]);
+    }, [running, results, params]);
 
-    const addLog = (iaId: number, text: string, severity: Severity, taskType: TaskType, tag: string) => {
-        const entry: LogEntry = {
-            timestamp: new Date().toLocaleTimeString(),
-            text, severity, taskType, tag, iaId
-        };
-        setIaLogs(prev => ({ ...prev, [iaId]: [...(prev[iaId] || []), entry].slice(-50) }));
+    const addLog = (id: number, text: string, tag: string) => {
+        const time = new Date().toLocaleTimeString();
+        const html = `<span class="text-gray-500">[${time}]</span> <span class="font-bold" style="color:${IA_COLORS[`ia${id}` as keyof typeof IA_COLORS]}">[${tag}]</span> ${text}`;
+        setIaLogs(prev => ({ ...prev, [id]: [...(prev[id] || []), html].slice(-25) }));
     };
 
     const runIA = async (id: number, args?: string) => {
         setIaStates(s => ({ ...s, [id]: { ...s[id], running: true, status: 'scanning' } }));
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const m = metrics;
-        const state = simulationStateRef.current;
-        let prompt = "";
-        let taskType: TaskType = 'ANALYSIS';
-
-        // Definición de roles específicos para el prompt
-        switch(id) {
-            case 1:
-                taskType = 'ANALYSIS';
-                prompt = `IA1 [EXPERIMENTAL]: Analiza la densidad actual (${params.density}) y la energía fuerte (${params.strongEnergy}). ¿Son consistentes los datos experimentales con la fase ${m.phase}?`;
-                break;
-            case 2:
-                taskType = 'GENERATION';
-                prompt = `IA2 [TEÓRICA]: Basado en la rigidez k=${m.currentRigidity.toFixed(3)}, propone una extensión a las leyes de torsión de nudo para la fase ${m.phase}.`;
-                break;
-            case 3:
-                taskType = 'OBSERVATION';
-                const userText = state.sharedMemory.userDeductions || "Sin datos.";
-                prompt = `IA3 [CONSENSO]: Valida científicamente esta deducción del usuario: "${userText}". 
-                Contexto: Fase ${m.phase}, Entropía ${m.entropy.toFixed(4)}, Coherencia ${m.quantumCoherence.toFixed(4)}. 
-                Determina si es una observación válida bajo la Teoría ABC.`;
-                break;
-            case 5:
-                taskType = 'CODE_SCAN';
-                prompt = `IA5 [AUDITOR]: Escanea la lógica del motor de simulación. Estado: k=${m.currentRigidity.toFixed(2)}, escala=${params.scale}. 
-                Busca anomalías de integridad. Si encuentras algo, responde con 'ACTION_IA7: [instrucción]' para repararlo.`;
-                break;
-            case 6:
-                taskType = 'OPTIMIZATION';
-                prompt = `IA6 [MEDIADOR]: Sugiere ajustes para los parámetros lambda y radioPi para maximizar la estabilidad en la fase ${m.phase}.`;
-                break;
-            case 7:
-                taskType = 'CORRECTION';
-                const pending = state.sharedMemory.pendingActions.join(", ") || "Ninguna";
-                prompt = `IA7 [PROGRAMADOR]: Ejecuta correcciones sobre el motor. Acciones pendientes: ${pending}. Describe el parche lógico que aplicarías.`;
-                break;
-            case 8:
-                taskType = 'ENTANGLEMENT';
-                prompt = `IA8 [CUÁNTICA]: Analiza el entrelazamiento cuántico (Índice: ${m.entanglementIndex.toFixed(4)}) y el nivel de coherencia (${m.quantumCoherence.toFixed(4)}).`;
-                break;
-            default:
-                prompt = `IA${id}: Reporte general del sistema en fase ${m.phase}.`;
-        }
-
         try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const prompt = `IA${id} [MODO EQUILIBRIO v3.0]: Analiza estabilidad en escala ${params.scale}. RadioPi actual: ${params.radioPi}. Coherencia: ${metrics.coherenceLevel.toFixed(4)}.`;
+
             const resp = await ai.models.generateContent({
                 model: 'gemini-3-flash-preview',
-                contents: prompt
+                contents: prompt,
             });
-            const text = resp.text || "Análisis completado sin observaciones adicionales.";
-            
-            // Post-procesamiento de IA5 para generar acciones para IA7
-            if (id === 5 && text.includes("ACTION_IA7:")) {
-                const action = text.split("ACTION_IA7:")[1].split("\n")[0].trim();
-                state.sharedMemory.pendingActions.push(action);
-                addLog(5, `⚠️ IA5 detectó vulnerabilidad lógica: Generando orden de reparación -> ${action}`, "WARN", "CODE_SCAN", "SYS_INTEGRITY");
-            }
 
-            const confidenceScore = 0.75 + Math.random() * 0.22;
-            setIaStates(s => ({ ...s, [id]: { ...s[id], running: false, lastResponse: text, confidence: confidenceScore, status: 'idle' } }));
-            
-            if (id !== 5 || !text.includes("ACTION_IA7:")) {
-                addLog(id, "Reporte neuronal procesado con éxito.", "INFO", taskType, "SUCCESS");
-            }
-
+            const text = resp.text || "Operación completada.";
+            setIaStates(s => ({ ...s, [id]: { ...s[id], running: false, lastResponse: text, confidence: 0.8 + Math.random() * 0.2, status: 'idle' } }));
+            addLog(id, "Auditoría de consistencia v3.0 finalizada.", "DONE");
         } catch (e) {
             setIaStates(s => ({ ...s, [id]: { ...s[id], running: false, status: 'error' } }));
-            addLog(id, "Fallo en la sincronización del modelo. Error de red neuronal.", "ERROR", taskType, "API_FAILURE");
+            addLog(id, "Error de sincronización en Modo Equilibrio.", "FAIL");
         }
     };
 
+    const passedCount = results.filter(r => r.passed).length;
+
     return (
-        <div className="flex h-screen bg-[#02020a] text-white p-2 gap-2 overflow-hidden font-sans">
+        <div className="flex h-screen bg-[#010108] text-white p-2 gap-2 overflow-hidden font-sans">
             <div className="w-80 flex flex-col gap-2">
-                <div className="bg-glass backdrop-blur-md border border-white/10 rounded-xl p-4 flex flex-col h-[55%] overflow-y-auto custom-scrollbar shadow-2xl">
+                <div className="bg-glass backdrop-blur-md border border-white/10 rounded-xl p-4 flex flex-col h-[55%] overflow-y-auto custom-scrollbar">
                     <ControlPanel params={params} 
                         onParamChange={(k, v) => { engineRef.current.updateParams({[k]: v}); setParams({...params, [k]: v}); }} 
                         onStart={() => setRunning(true)} 
@@ -148,24 +118,44 @@ const App: React.FC = () => {
                         onSaveDeduction={d => { simulationStateRef.current.sharedMemory.userDeductions = d; }} 
                     />
                 </div>
-                <ResultsPanel iaStates={iaStates} globalConsensus={metrics.coherenceLevel} notifications={notifications} onExport={() => {}} />
+                <ResultsPanel iaStates={iaStates} globalConsensus={passedCount / 10} notifications={notifications} onExport={() => {}} />
             </div>
-            <div className="flex-1 overflow-hidden flex flex-col">
-                <div className="flex-1">
-                    <SimulationPanel metrics={metrics} simulationStateRef={simulationStateRef} />
+            
+            <div className="flex-1 overflow-hidden flex flex-col gap-2">
+                <div className="flex gap-2 bg-white/[0.03] p-1 rounded-xl border border-white/5">
+                    {[
+                        { id: 'CORE', name: 'Sincronía ABC v3.0', icon: '🌀' },
+                        { id: 'FOAM', name: 'Espuma Wheeler', icon: '🌊' },
+                        { id: 'THEORY', name: 'Teoría Unificada', icon: '🌌' }
+                    ].map(tab => (
+                        <button 
+                            key={tab.id}
+                            onClick={() => setViewMode(tab.id as ViewMode)}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-black tracking-widest transition-all ${viewMode === tab.id ? 'bg-green-600 text-white shadow-lg shadow-green-500/20' : 'bg-transparent text-gray-500 hover:bg-white/5'}`}
+                        >
+                            <span>{tab.icon}</span> {tab.name}
+                        </button>
+                    ))}
                 </div>
-                <div className="mt-2 bg-black/60 border border-white/10 rounded-lg p-3 text-[10px] font-mono flex items-center justify-between shadow-2xl">
-                    <div className="flex gap-6 overflow-x-auto whitespace-nowrap z-10 custom-scrollbar-h">
-                        <span className="text-cyan-400 uppercase font-black">Fase: {metrics.phase}</span>
-                        <span className="text-pink-400">Coherencia Ψ: {metrics.quantumCoherence.toFixed(4)}</span>
-                        <span className="text-orange-400">Rigidez k: {metrics.currentRigidity.toFixed(3)}</span>
-                        <span className="text-yellow-400">Quarks Formados: {simulationStateRef.current.quarks.length}</span>
-                        <span className="text-ia7">Parches IA7: {simulationStateRef.current.sharedMemory.pendingActions.length}</span>
+
+                <div className="flex-1 relative bg-[#010105] rounded-xl overflow-hidden border border-white/10">
+                    {viewMode === 'CORE' && <SimulationPanel metrics={metrics} simulationStateRef={simulationStateRef} />}
+                    {viewMode === 'FOAM' && <QuantumFoamSimulation params={params} onBack={() => setViewMode('CORE')} />}
+                    {viewMode === 'THEORY' && <FullTheorySimulation initialParams={params} onBack={() => setViewMode('CORE')} />}
+                </div>
+                
+                <div className="bg-black/60 border border-white/10 rounded-lg p-3 text-[9px] font-mono flex items-center justify-between shadow-lg">
+                    <div className="flex gap-6">
+                        <span className="text-green-400 font-bold uppercase tracking-widest">VALIDACIÓN v3.0: {(passedCount * 10).toFixed(0)}%</span>
+                        <span className="text-cyan-400">BRIDGE STATUS: {bridgeRef.current.connectionCount > 0 ? 'CONNECTED' : 'STANDBY'}</span>
+                        <span className="text-purple-400">PHI: {params.radioPi.toFixed(2)}</span>
                     </div>
+                    <div className="text-white/30 italic">v3.0_EQUILIBRIUM</div>
                 </div>
             </div>
+            
             <div className="w-80">
-                <IAPanel chatHistory={chatHistory} onSendMessage={m => setChatHistory([...chatHistory, {sender:'Usuario', message:m, color:'#fff', timestamp:new Date()}])} onRunIA={runIA} iaLogs={iaLogs} userDeductions={simulationStateRef.current.sharedMemory.userDeductions} />
+                <IAPanel chatHistory={chatHistory} onSendMessage={m => setChatHistory([...chatHistory, {sender:'User', message:m, color:'#fff', timestamp:new Date()}])} onRunIA={runIA} iaLogs={iaLogs} />
             </div>
         </div>
     );

@@ -1,7 +1,6 @@
 
 import React, { useRef, useEffect } from 'react';
-import { GlobalState, ABCNode } from '../types';
-import { SCALE_LABELS } from '../constants';
+import { GlobalState } from '../types';
 
 interface SimulationPanelProps {
     metrics: any; 
@@ -27,77 +26,89 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ metrics, simulationSt
 
             const { width: w, height: h } = canvas;
             const cx = w / 2; const cy = h / 2;
-            const scaleIndex = state.parameters.scale;
-            const zoomBase = 300;
-            const zoom = zoomBase * Math.pow(0.7, scaleIndex - 6);
+            const zoom = 500 * Math.pow(0.7, state.parameters.scale - 6);
 
-            ctx.fillStyle = '#010108';
+            // Default blend mode
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Fondo de Archivo Clasificado v3.0
+            ctx.fillStyle = '#010105';
             ctx.fillRect(0, 0, w, h);
+            
+            // Scanlines
+            ctx.fillStyle = 'rgba(0, 255, 0, 0.01)';
+            for(let i = 0; i < h; i += 4) { ctx.fillRect(0, i, w, 1); }
 
-            // 1. Quarks (Materia Localizada)
-            state.quarks.forEach(q => {
-                const qx = cx + q.position.x * zoom;
-                const qy = cy + q.position.y * zoom;
-                
-                // Núcleo del Quark
+            // --- 0. TEJIDO DE CURVATURA ζ ---
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(0, 255, 120, 0.03)';
+            ctx.lineWidth = 0.5;
+            const gridSize = 32;
+            for(let x = 0; x <= w; x += gridSize) {
+                ctx.moveTo(x, 0);
+                for(let y = 0; y <= h; y += 12) {
+                    let dx = 0;
+                    state.nodes.forEach((n: any) => {
+                        if (n.isCollapsed || (n.zeta || 1) <= 1.01) return;
+                        const nx = cx + n.x * zoom; const ny = cy + n.y * zoom;
+                        const d2 = (x - nx)**2 + (y - ny)**2;
+                        if (d2 < 15000) {
+                            const strength = ((n.zeta || 1) - 1) * 0.5;
+                            dx += (nx - x) * strength * (1 - Math.sqrt(d2)/120);
+                        }
+                    });
+                    ctx.lineTo(x + dx, y);
+                }
+            }
+            ctx.stroke();
+
+            // --- 1. RAYOS DE EQUILIBRIO ABC ---
+            ctx.globalCompositeOperation = 'screen';
+            state.nodes.forEach((n: any) => {
+                if (n.isCollapsed) return;
+                const nx = cx + n.x * zoom; const ny = cy + n.y * zoom;
+                const zetaFactor = Math.pow(n.zeta || 1, 1.05);
+                const baseLen = 14 * (zoom / 500) * (n.superposition || 1) * zetaFactor;
+                const alpha = Math.max(0.1, 0.9 - state.parameters.scale / 10);
+
+                const drawRay = (v: {x:number, y:number, z:number}, hue: number, phaseOffset: number) => {
+                    const osc = Math.sin(n.vibrationPhase + phaseOffset);
+                    const length = baseLen * (0.95 + Math.abs(osc) * 0.2);
+                    const vx = nx + (v?.x || 0) * length;
+                    const vy = ny + (v?.y || 0) * length;
+
+                    ctx.beginPath();
+                    ctx.moveTo(nx, ny);
+                    ctx.lineTo(vx, vy);
+                    ctx.strokeStyle = `hsla(${hue}, 100%, 70%, ${alpha * (n.superposition || 1)})`;
+                    ctx.lineWidth = 0.8;
+                    ctx.stroke();
+                };
+
+                // Triada de colores de equilibrio
+                const vecA = n.vecA || {x: 1, y: 0, z: 0};
+                const vecB = n.vecB || {x: -0.5, y: 0.866, z: 0};
+                const vecC = n.vecC || {x: -0.5, y: -0.866, z: 0};
+
+                drawRay(vecA, 140, 0);          
+                drawRay(vecB, 200, Math.PI * 0.66);
+                drawRay(vecC, 280, Math.PI * 1.33);
+
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath(); ctx.arc(nx, ny, 1.2, 0, Math.PI * 2); ctx.fill();
+            });
+
+            // --- 2. QUARKS Y HADRONIZACIÓN ---
+            ctx.globalCompositeOperation = 'source-over';
+            state.quarks.forEach((q: any) => {
+                const qx = cx + (q.position?.x || q.x) * zoom; 
+                const qy = cy + (q.position?.y || q.y) * zoom;
                 ctx.shadowBlur = 15;
-                ctx.shadowColor = q.type === 'up' ? '#ff3333' : '#3333ff';
-                ctx.fillStyle = q.type === 'up' ? '#ff3333' : '#3333ff';
-                ctx.beginPath();
-                ctx.arc(qx, qy, 6 * (zoom/zoomBase), 0, Math.PI * 2);
-                ctx.fill();
+                ctx.shadowColor = q.color;
+                ctx.fillStyle = q.color;
+                ctx.beginPath(); ctx.arc(qx, qy, 5 * (zoom/500), 0, Math.PI * 2); ctx.fill();
                 ctx.shadowBlur = 0;
             });
-
-            // 2. Ondas de Colapso (Efectos Transitorios)
-            state.recentCollapses.forEach(c => {
-                const elapsed = state.time - c.time;
-                const opacity = 1 - elapsed;
-                const radius = elapsed * 300 * (zoom/zoomBase);
-                
-                ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(cx + c.x * zoom, cy + c.y * zoom, radius, 0, Math.PI * 2);
-                ctx.stroke();
-            });
-
-            // 3. Nodos en Superposición / Vacío
-            state.nodes.forEach(n => {
-                if (n.isCollapsed) return;
-                
-                let nx = cx + n.x * zoom; 
-                let ny = cy + n.y * zoom;
-                
-                // Jitter cuántico si tiene alta superposición
-                if (n.superposition > 0.2) {
-                    nx += (Math.random() - 0.5) * n.superposition * 10;
-                    ny += (Math.random() - 0.5) * n.superposition * 10;
-                }
-
-                const size = 2 * (zoom/zoomBase);
-                
-                // Aura de superposición (Incertidumbre)
-                if (n.superposition > 0.1) {
-                    const grad = ctx.createRadialGradient(nx, ny, 0, nx, ny, n.superposition * 15 * (zoom/zoomBase));
-                    grad.addColorStop(0, `rgba(255, 255, 255, ${n.superposition * 0.4})`);
-                    grad.addColorStop(1, 'transparent');
-                    ctx.fillStyle = grad;
-                    ctx.beginPath();
-                    ctx.arc(nx, ny, n.superposition * 15 * (zoom/zoomBase), 0, Math.PI * 2);
-                    ctx.fill();
-                }
-
-                ctx.fillStyle = n.color;
-                ctx.beginPath();
-                ctx.arc(nx, ny, size, 0, Math.PI * 2);
-                ctx.fill();
-            });
-
-            ctx.font = 'bold 10px monospace';
-            ctx.fillStyle = '#00FFCC';
-            ctx.fillText(`FASE: ${state.currentPhase}`, 20, 25);
-            ctx.fillText(`COLAPSOS (Ψ): ${state.quarks.length}`, 20, 40);
 
             frameId = requestAnimationFrame(render);
         };
@@ -106,11 +117,17 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ metrics, simulationSt
     }, [simulationStateRef]);
 
     return (
-        <div className="bg-glass backdrop-blur-md border border-white/10 rounded-xl p-4 h-full relative overflow-hidden shadow-2xl">
-            <div className="absolute top-4 right-4 flex flex-col gap-1 items-end pointer-events-none">
-                <div className="px-2 py-0.5 bg-black/60 rounded border border-purple-500/30 text-[8px] text-purple-400 font-bold uppercase tracking-tighter">WFC Engine v1.0</div>
+        <div className="bg-[#010105] border border-green-500/20 rounded-xl h-full relative overflow-hidden shadow-[inset_0_0_150px_rgba(0,0,0,1)]">
+            <div className="absolute top-4 left-6 z-20">
+                <div className="flex items-center gap-3">
+                    <div className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_10px_#22c55e]"></div>
+                    <div className="flex flex-col">
+                        <div className="text-[10px] text-green-400 font-black tracking-[0.3em] uppercase">SISTEMA ABC v3.0 // EQUILIBRIO</div>
+                        <div className="text-[7px] text-green-900 font-mono font-bold tracking-widest uppercase">Protocolo RQNT_BRIDGE: Sincronizado</div>
+                    </div>
+                </div>
             </div>
-            <canvas ref={canvasRef} width={800} height={500} className="w-full h-full bg-[#00000a] rounded-lg shadow-inner" />
+            <canvas ref={canvasRef} width={800} height={500} className="w-full h-full" />
         </div>
     );
 };
