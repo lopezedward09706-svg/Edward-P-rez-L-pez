@@ -65,7 +65,8 @@ const App: React.FC = () => {
                     bridgeRef.current.broadcast({
                         gamma: m.entropy,
                         phi: params.radioPi,
-                        score: (passedCount / 10) * 100
+                        score: (passedCount / 10) * 100,
+                        nodes: engineRef.current.state.nodes.length < 50 ? engineRef.current.state.nodes : undefined
                     });
                     lastBroadcast = time;
                 }
@@ -83,22 +84,47 @@ const App: React.FC = () => {
     };
 
     const runIA = async (id: number, args?: string) => {
-        setIaStates(s => ({ ...s, [id]: { ...s[id], running: true, status: 'scanning' } }));
+        const currentStatus = id === 4 ? 'searching' : id === 7 ? 'repairing' : 'scanning';
+        setIaStates(s => ({ ...s, [id]: { ...s[id], running: true, status: currentStatus } }));
+        
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const prompt = `IA${id} [MODO EQUILIBRIO v3.0]: Analiza estabilidad en escala ${params.scale}. RadioPi actual: ${params.radioPi}. Coherencia: ${metrics.coherenceLevel.toFixed(4)}.`;
+            
+            let systemPrompt = "";
+            let userPrompt = `IA${id} [MODO EQUILIBRIO v3.0]: Analiza estabilidad en escala ${params.scale}. RadioPi actual: ${params.radioPi}. Coherencia: ${metrics.coherenceLevel.toFixed(4)}.`;
+
+            switch(id) {
+                case 4:
+                    systemPrompt = "Eres IA 4: El Buscador. Tu objetivo es encontrar constantes físicas emergentes en la simulación ABC. Analiza la entropía y el RadioPi para proponer nuevas ecuaciones.";
+                    userPrompt += " Busca patrones de resonancia en los nodos.";
+                    break;
+                case 7:
+                    systemPrompt = "Eres IA 7: El Programador. Recibes instrucciones técnicas para modificar el comportamiento del núcleo de simulación.";
+                    userPrompt = `Instrucción de código recibida: "${args || 'Optimización general'}". Analiza cómo aplicar esto al sistema ABC con RadioPi ${params.radioPi}.`;
+                    break;
+                default:
+                    systemPrompt = `Eres IA ${id} del sistema evolutivo ABC. Tu rol es especializado en el análisis de física cuántica y cosmología emergente.`;
+            }
 
             const resp = await ai.models.generateContent({
                 model: 'gemini-3-flash-preview',
-                contents: prompt,
+                contents: userPrompt,
+                config: { systemInstruction: systemPrompt }
             });
 
-            const text = resp.text || "Operación completada.";
-            setIaStates(s => ({ ...s, [id]: { ...s[id], running: false, lastResponse: text, confidence: 0.8 + Math.random() * 0.2, status: 'idle' } }));
-            addLog(id, "Auditoría de consistencia v3.0 finalizada.", "DONE");
+            const text = resp.text || "Análisis completado satisfactoriamente.";
+            
+            setIaStates(s => ({ ...s, [id]: { ...s[id], running: false, lastResponse: text, confidence: 0.85 + Math.random() * 0.1, status: 'idle' } }));
+            
+            const logTag = id === 4 ? "FIND" : id === 7 ? "CODE" : "DONE";
+            addLog(id, id === 7 ? `Parche aplicado: ${args || 'Global Opt'}` : text.substring(0, 100) + "...", logTag);
+
+            if (id === 7 && args) {
+                setNotifications(n => [`[IA7] Modificación aplicada: ${args.toUpperCase()}`, ...n].slice(0, 8));
+            }
         } catch (e) {
             setIaStates(s => ({ ...s, [id]: { ...s[id], running: false, status: 'error' } }));
-            addLog(id, "Error de sincronización en Modo Equilibrio.", "FAIL");
+            addLog(id, "Error crítico en la unidad de procesamiento IA.", "FAIL");
         }
     };
 
@@ -107,7 +133,7 @@ const App: React.FC = () => {
     return (
         <div className="flex h-screen bg-[#010108] text-white p-2 gap-2 overflow-hidden font-sans">
             <div className="w-80 flex flex-col gap-2">
-                <div className="bg-glass backdrop-blur-md border border-white/10 rounded-xl p-4 flex flex-col h-[55%] overflow-y-auto custom-scrollbar">
+                <div className="bg-glass backdrop-blur-md border border-white/10 rounded-xl p-4 flex flex-col h-[52%] overflow-y-auto custom-scrollbar">
                     <ControlPanel params={params} 
                         onParamChange={(k, v) => { engineRef.current.updateParams({[k]: v}); setParams({...params, [k]: v}); }} 
                         onStart={() => setRunning(true)} 
@@ -118,7 +144,13 @@ const App: React.FC = () => {
                         onSaveDeduction={d => { simulationStateRef.current.sharedMemory.userDeductions = d; }} 
                     />
                 </div>
-                <ResultsPanel iaStates={iaStates} globalConsensus={passedCount / 10} notifications={notifications} onExport={() => {}} />
+                <ResultsPanel 
+                    iaStates={iaStates} 
+                    globalConsensus={passedCount / 10} 
+                    notifications={notifications} 
+                    onExport={() => {}} 
+                    currentState={simulationStateRef.current}
+                />
             </div>
             
             <div className="flex-1 overflow-hidden flex flex-col gap-2">
@@ -131,7 +163,7 @@ const App: React.FC = () => {
                         <button 
                             key={tab.id}
                             onClick={() => setViewMode(tab.id as ViewMode)}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-black tracking-widest transition-all ${viewMode === tab.id ? 'bg-green-600 text-white shadow-lg shadow-green-500/20' : 'bg-transparent text-gray-500 hover:bg-white/5'}`}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-black tracking-widest transition-all ${viewMode === tab.id ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/20' : 'bg-transparent text-gray-500 hover:bg-white/5'}`}
                         >
                             <span>{tab.icon}</span> {tab.name}
                         </button>
@@ -146,11 +178,14 @@ const App: React.FC = () => {
                 
                 <div className="bg-black/60 border border-white/10 rounded-lg p-3 text-[9px] font-mono flex items-center justify-between shadow-lg">
                     <div className="flex gap-6">
-                        <span className="text-green-400 font-bold uppercase tracking-widest">VALIDACIÓN v3.0: {(passedCount * 10).toFixed(0)}%</span>
-                        <span className="text-cyan-400">BRIDGE STATUS: {bridgeRef.current.connectionCount > 0 ? 'CONNECTED' : 'STANDBY'}</span>
-                        <span className="text-purple-400">PHI: {params.radioPi.toFixed(2)}</span>
+                        <span className="text-cyan-400 font-bold uppercase tracking-widest">SISTEMA SIP v3.0: ONLINE</span>
+                        <span className="text-white/40">MÉTRICA GAMMA: {metrics.entropy.toFixed(4)}</span>
+                        <span className="text-purple-400">COHERENCIA: {(metrics.coherenceLevel * 100).toFixed(1)}%</span>
                     </div>
-                    <div className="text-white/30 italic">v3.0_EQUILIBRIUM</div>
+                    <div className="flex items-center gap-2">
+                         <div className={`w-2 h-2 rounded-full ${bridgeRef.current.connectionCount > 0 ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></div>
+                         <span className="text-[8px] text-white/50 uppercase">Ext-Link Status</span>
+                    </div>
                 </div>
             </div>
             

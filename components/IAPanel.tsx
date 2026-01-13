@@ -13,6 +13,7 @@ interface IAPanelProps {
 const IAPanel: React.FC<IAPanelProps> = ({ chatHistory, onSendMessage, onRunIA, iaLogs }) => {
     const [activeTab, setActiveTab] = useState<'chat' | number>('chat');
     const [input, setInput] = useState('');
+    const [iaInput, setIaInput] = useState('');
     const chatEndRef = useRef<HTMLDivElement>(null);
     const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -53,7 +54,10 @@ const IAPanel: React.FC<IAPanelProps> = ({ chatHistory, onSendMessage, onRunIA, 
                 {IATabs.map(ia => (
                     <button 
                         key={ia.id}
-                        onClick={() => setActiveTab(ia.id)}
+                        onClick={() => {
+                            setActiveTab(ia.id);
+                            setIaInput('');
+                        }}
                         className={`flex-1 px-1 py-1.5 text-[9px] font-bold rounded border ${activeTab === ia.id ? `bg-white/10 border-white` : 'bg-black/30 border-white/10 hover:bg-white/10'}`}
                         style={{ color: activeTab === ia.id ? undefined : IA_COLORS[`ia${ia.id}` as keyof typeof IA_COLORS] }}
                     >
@@ -97,17 +101,15 @@ const IAPanel: React.FC<IAPanelProps> = ({ chatHistory, onSendMessage, onRunIA, 
                                 {ia.hasInput && (
                                     <input 
                                         type="text" 
-                                        id="ia7-input"
-                                        placeholder={ia.id === 7 ? "Target File or Instruction..." : "Instrucción..."}
-                                        className="w-full bg-black/40 border border-white/20 rounded px-3 py-2 text-sm mb-2"
+                                        value={iaInput}
+                                        onChange={(e) => setIaInput(e.target.value)}
+                                        placeholder={ia.id === 7 ? "Instrucción de código..." : "Instrucción..."}
+                                        className="w-full bg-black/40 border border-white/20 rounded px-3 py-2 text-sm mb-2 focus:border-white transition-colors"
                                     />
                                 )}
 
                                 <button 
-                                    onClick={() => {
-                                        const arg = ia.hasInput ? (document.getElementById('ia7-input') as HTMLInputElement).value : undefined;
-                                        onRunIA(ia.id, arg);
-                                    }}
+                                    onClick={() => onRunIA(ia.id, ia.hasInput ? iaInput : undefined)}
                                     className={`w-full py-2 mb-4 rounded font-bold text-black hover:brightness-110 transition-all ${ia.bg}`}
                                 >
                                     {ia.action}
